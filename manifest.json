@@ -1,0 +1,9 @@
+{
+  "name": "QR to DXF Laser",
+  "short_name": "QR→DXF",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#111827",
+  "description": "QR画像からレーザー加工用DXFを生成"
+}

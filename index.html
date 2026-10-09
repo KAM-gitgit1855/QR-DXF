@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>QR → DXF レーザー加工</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#151d30;--line:#2b3852;--text:#f3f6fc;--muted:#a9b5c9;--blue:#3182f6;--green:#31c48d;--red:#ff6b6b}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#0b1020,#10192a);color:var(--text);font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif}
+main{max-width:760px;margin:auto;padding:18px 14px 40px}.hero{padding:12px 2px 18px}.eyebrow{font-size:12px;letter-spacing:.14em;color:#8fbaff;font-weight:800}.hero h1{font-size:27px;margin:5px 0 8px}.hero p{color:var(--muted);line-height:1.65;margin:0}
+.panel{background:rgba(21,29,48,.96);border:1px solid var(--line);border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 8px 30px #0002}
+h2{font-size:17px;margin:0 0 12px}.muted{color:var(--muted);font-size:13px;line-height:1.6}.drop{display:block;border:1.5px dashed #536786;border-radius:14px;padding:20px 14px;text-align:center;background:#0e1728;cursor:pointer}.drop strong{display:block;margin-bottom:5px}.drop input{display:block;width:100%;margin-top:14px}
+.previewwrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}.previewbox{background:#fff;border-radius:12px;padding:8px;min-height:150px;display:flex;align-items:center;justify-content:center}.previewbox img,.previewbox canvas{max-width:100%;height:auto;image-rendering:pixelated}.status{padding:10px 12px;border-radius:10px;background:#0d1728;color:var(--muted);font-size:13px;overflow-wrap:anywhere}.status.ok{color:#8af0c6}.status.err{color:#ffaaaa}
+.modes{display:grid;grid-template-columns:1fr 1fr;gap:10px}.mode{border:1px solid var(--line);border-radius:12px;padding:12px;background:#10182a;cursor:pointer}.mode:has(input:checked){border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}.mode input{accent-color:var(--blue)}.mode b{display:block;margin:5px 0}.mode small{color:var(--muted);line-height:1.45;display:block}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field label{display:block;color:var(--muted);font-size:13px;margin-bottom:6px}.field input,.field select{width:100%;padding:12px;border-radius:10px;border:1px solid #43516b;background:#0c1424;color:var(--text);font:inherit}.unit{font-size:12px;color:var(--muted);margin-top:4px}
+button,.button{border:0;border-radius:12px;padding:14px 16px;font:700 15px inherit;cursor:pointer;width:100%;color:white;background:var(--blue);margin-top:10px}.secondary{background:#26344e}.green{background:#16835f}.buttonrow{display:grid;grid-template-columns:1fr 1fr;gap:10px}.buttonrow button{margin-top:0}
+canvas{display:none}.hide{display:none!important}.warning{border-left:3px solid #e9b949;padding:8px 10px;background:#2a2417;color:#f5d98a;border-radius:4px;font-size:12px;line-height:1.55}.footer{font-size:12px;color:var(--muted);line-height:1.65;padding:6px}
+@media(max-width:520px){.previewwrap{grid-template-columns:1fr}.previewbox{min-height:120px}.fields{grid-template-columns:1fr 1fr}.hero h1{font-size:24px}.modes{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<header class="hero"><div class="eyebrow">LASER WORKFLOW / ANDROID PWA</div><h1>QR → DXF 変換</h1><p>QR画像を選択して読み取りを確認。8mm固定版と、サイズを変更できる35mm方式のDXFを生成します。</p></header>
+
+<section class="panel">
+<h2>1. QR画像をアップロード</h2>
+<label class="drop"><strong>画像を選択</strong><span class="muted">PNG / JPG / WebP</span><input id="file" type="file" accept="image/*"></label>
+<div style="height:12px"></div><div id="status" class="status">画像を選択してください。</div>
+<div class="previewwrap" style="margin-top:12px">
+<div><div class="muted" style="margin-bottom:6px">アップロード画像</div><div class="previewbox"><img id="sourcePreview" alt="アップロード画像のプレビュー"></div></div>
+<div><div class="muted" style="margin-bottom:6px">抽出したQRマトリクス</div><div class="previewbox"><canvas id="qrPreview"></canvas><span id="previewPlaceholder" class="muted">読み取り後に表示</span></div></div>
+</div>
+<div class="muted" style="margin-top:10px">※ QRの内容を読み取った後、その内容からQRマトリクスを再生成します。元画像と完全に同じモジュール配置ではなく、読み取った内容が同じQRになります。</div>
+</section>
+
+<section class="panel">
+<h2>2. 加工方式</h2>
+<div class="modes">
+<label class="mode"><input type="radio" name="mode" value="small" checked> <b>8mm 最小版（固定）</b><small>外形8mm固定。走査経路は移動量を抑えた水平ラン方式。</small></label>
+<label class="mode"><input type="radio" name="mode" value="large"> <b>35mm方式（サイズ変更可）</b><small>初期35mm。任意サイズに変更して蛇行走査DXFを生成。</small></label>
+</div>
+<div id="largeSettings" class="fields hide" style="margin-top:14px">
+<div class="field"><label for="size">外形サイズ</label><input id="size" type="number" min="10" max="500" step="0.1" value="35"><div class="unit">mm（10〜500mm）</div></div>
+<div class="field"><label for="pitch">走査ピッチ</label><input id="pitch" type="number" min="0.05" max="2" step="0.05" value="0.35"><div class="unit">mm（初期値0.35mm）</div></div>
+</div>
+<div class="fields" style="margin-top:14px">
+<div class="field"><label for="margin">外周余白</label><input id="margin" type="number" min="0" max="10" step="0.1" value="0"><div class="unit">mm</div></div>
+<div class="field"><label for="name">ファイル名</label><input id="name" type="text" value="QR_laser"></div>
+</div>
+<div class="warning" style="margin-top:12px">8mm版は外形寸法を固定しています。余白は外形サイズの内側に確保するため、QR本体は小さくなります。小さなQRはレーザーのスポット径・材料・出力条件によって読み取れない場合があります。</div>
+<button id="generate">DXFを生成</button>
+</section>
+
+<section class="panel">
+<h2>3. DXFプレビュー・保存</h2>
+<div class="previewbox" style="min-height:220px;background:#080d17"><canvas id="dxfPreview" style="display:block;max-height:320px"></canvas></div>
+<div id="result" class="status" style="margin-top:12px">DXFはまだ生成されていません。</div>
+<div class="buttonrow" style="margin-top:10px"><button id="download" class="green" disabled>DXFを保存</button><button id="downloadSvg" class="secondary" disabled>SVGも保存</button></div>
+</section>
+<div class="footer">使い方：QR画像を選択 → 読み取り成功を確認 → 加工方式を選択 → DXF生成 → 保存。<br>このアプリはブラウザ内で処理し、画像をサーバーへアップロードしません。DXFはmm単位のポリラインとして出力します。加工前にCADで寸法と経路を確認してください。</div>
+<canvas id="work" width="1000" height="1000"></canvas>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let qrText="", matrix=null, dxfText="", svgText="", outputName="QR_laser";
+const status=$("status"), result=$("result");
+document.querySelectorAll('input[name="mode"]').forEach(el=>el.addEventListener("change",()=>{
+  $("largeSettings").classList.toggle("hide",document.querySelector('input[name="mode"]:checked').value!=="large");
+}));
+function setStatus(msg,kind=""){status.textContent=msg;status.className="status "+kind;}
+function drawMatrix(m,canvas){
+ const n=m.length, ctx=canvas.getContext("2d"), scale=10, quiet=4;
+ canvas.width=(n+quiet*2)*scale;canvas.height=canvas.width;
+ ctx.fillStyle="#fff";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle="#000";
+ for(let y=0;y<n;y++)for(let x=0;x<n;x++)if(m[y][x])ctx.fillRect((x+quiet)*scale,(y+quiet)*scale,scale,scale);
+ canvas.style.display="block";
+}
+function makeMatrix(text){
+ const qr=qrcode(0,"M");qr.addData(text);qr.make();
+ const n=qr.getModuleCount(), m=[];
+ for(let y=0;y<n;y++){const row=[];for(let x=0;x<n;x++)row.push(qr.isDark(y,x));m.push(row);}
+ return m;
+}
+$("file").addEventListener("change",async e=>{
+ const f=e.target.files&&e.target.files[0];if(!f)return;
+ $("sourcePreview").src=URL.createObjectURL(f);setStatus("QRを解析中…");
+ try{
+   const bmp=await createImageBitmap(f);const c=$("work"),ctx=c.getContext("2d",{willReadFrequently:true});
+   const scale=Math.min(1,1200/Math.max(bmp.width,bmp.height));c.width=Math.max(1,Math.round(bmp.width*scale));c.height=Math.max(1,Math.round(bmp.height*scale));ctx.drawImage(bmp,0,0,c.width,c.height);
+   let decoded=null;
+   if(window.jsQR)decoded=jsQR(ctx.getImageData(0,0,c.width,c.height).data,c.width,c.height,{inversionAttempts:"attemptBoth"});
+   if(!decoded && "BarcodeDetector" in window){
+     try{const det=new BarcodeDetector({formats:["qr_code"]});const found=await det.detect(bmp);if(found.length)decoded={data:found[0].rawValue};}catch(_){}
+   }
+   if(!decoded){qrText="";matrix=null;setStatus("QRを読み取れませんでした。鮮明な画像で、QR全体と周囲の余白を含めて再度選択してください。","err");return;}
+   qrText=decoded.data;matrix=makeMatrix(qrText);drawMatrix(matrix,$("qrPreview"));$("previewPlaceholder").classList.add("hide");
+   setStatus("読み取り成功："+qrText,"ok");
+ }catch(err){setStatus("画像を処理できませんでした："+err.message,"err");}
+});
+function dxfPair(code,val){return code+"\n"+val+"\n";}
+function dxfHeader(size){
+ let s="0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n";
+ return s;
+}
+function polyline(points,closed=false){
+ let s="0\nLWPOLYLINE\n100\nAcDbEntity\n8\nQR\n100\nAcDbPolyline\n90\n"+points.length+"\n70\n"+(closed?1:0)+"\n";
+ for(const p of points)s+="10\n"+p[0].toFixed(5)+"\n20\n"+p[1].toFixed(5)+"\n";
+ return s;
+}
+function getRuns(m){
+ const runs=[];
+ for(let y=0;y<m.length;y++){
+   let x=0;
+   while(x<m.length){while(x<m.length&&!m[y][x])x++;if(x>=m.length)break;let start=x;while(x<m.length&&m[y][x])x++;runs.push({y,x1:start,x2:x});}
+ }
+ return runs;
+}
+function generateDXF(){
+ if(!matrix||!qrText){setStatus("先にQR画像をアップロードして読み取り成功を確認してください。","err");return;}
+ const mode=document.querySelector('input[name="mode"]:checked').value;
+ const size=mode==="small"?8:parseFloat($("size").value);
+ const pitch=mode==="small"?null:parseFloat($("pitch").value);
+ const margin=parseFloat($("margin").value);
+ if(!Number.isFinite(size)||size< (mode==="small"?8:10)||size>500||!Number.isFinite(margin)||margin<0||margin>=size/2){result.textContent="サイズまたは余白の値を確認してください。";result.className="status err";return;}
+ if(mode==="large"&&(!Number.isFinite(pitch)||pitch<0.05||pitch>2)){result.textContent="走査ピッチは0.05〜2mmで指定してください。";result.className="status err";return;}
+ const n=matrix.length, inner=size-2*margin, cell=inner/n;
+ let entities="", segments=0;
+ if(mode==="small"){
+   // Fixed 8 mm: merge black modules into horizontal runs, alternate direction per row to reduce travel.
+   const runs=getRuns(matrix);
+   const byRow=new Map();for(const r of runs){if(!byRow.has(r.y))byRow.set(r.y,[]);byRow.get(r.y).push(r);}
+   for(let y=0;y<n;y++){
+     let rr=byRow.get(y)||[];if(y%2)rr=rr.slice().reverse();
+     for(const r of rr){
+       let x1=margin+r.x1*cell, x2=margin+r.x2*cell, yy=size-margin-(r.y+0.5)*cell;
+       if(y%2)[x1,x2]=[x2,x1];
+       entities+=polyline([[x1,yy],[x2,yy]]);segments++;
+     }
+   }
+ } else {
+   // 35 mm method: horizontal serpentine scan lines at the chosen pitch; clip each line to dark QR modules.
+   const scanCount=Math.max(1,Math.ceil(inner/pitch));
+   for(let j=0;j<scanCount;j++){
+     const yy=margin+Math.min(inner,(j+0.5)*pitch);
+     const rowFromBottom=(size-margin-yy)/cell-0.5;
+     const y=Math.max(0,Math.min(n-1,Math.floor(rowFromBottom)));
+     let xs=matrix[y], x=0, runs=[];
+     while(x<n){while(x<n&&!xs[x])x++;if(x>=n)break;let start=x;while(x<n&&xs[x])x++;runs.push([start,x]);}
+     if(j%2)runs.reverse();
+     for(const r of runs){
+       let x1=margin+r[0]*cell,x2=margin+r[1]*cell;
+       if(j%2)[x1,x2]=[x2,x1];
+       entities+=polyline([[x1,yy],[x2,yy]]);segments++;
+     }
+   }
+ }
+ dxfText=dxfHeader(size)+entities+"0\nENDSEC\n0\nEOF\n";
+ outputName=($("name").value.trim()||"QR_laser").replace(/[\\/:*?"<>|]+/g,"_").replace(/\.dxf$/i,"");
+ // SVG preview/export mirrors the generated scan paths.
+ const paths=[];const re=/0\nLWPOLYLINE\n100\nAcDbEntity\n8\nQR\n100\nAcDbPolyline\n90\n(\d+)\n70\n\d+\n/g;let match,last=0;
+ while((match=re.exec(dxfText))){let count=Number(match[1]),pos=re.lastIndex,pts=[];for(let k=0;k<count;k++){const xmatch=/10\n([-\d.]+)\n20\n([-\d.]+)\n/.exec(dxfText.slice(pos));if(!xmatch)break;pts.push([Number(xmatch[1]),Number(xmatch[2])]);pos+=xmatch[0].length;}if(pts.length>1)paths.push(pts);}
+ svgText=`<svg xmlns="http://www.w3.org/2000/svg" width="${size}mm" height="${size}mm" viewBox="0 0 ${size} ${size}"><rect width="${size}" height="${size}" fill="white"/>`+paths.map(pts=>`<polyline points="${pts.map(p=>p[0]+","+(size-p[1])).join(" ")}" fill="none" stroke="black" stroke-width="${mode==="small"?Math.max(0.04,cell*0.15):Math.min(pitch*0.65,0.22)}" stroke-linecap="butt" stroke-linejoin="miter"/>`).join("")+"</svg>";
+ renderPaths(paths,size);
+ result.textContent=`生成完了：${size} × ${size} mm / ${n}×${n} modules / ${segments}本の走査ポリライン / ${mode==="small"?"8mm固定・水平ラン方式":"蛇行走査・ピッチ "+pitch+"mm"}`;
+ result.className="status ok";$("download").disabled=false;$("downloadSvg").disabled=false;
+}
+function renderPaths(paths,size){
+ const c=$("dxfPreview"),ctx=c.getContext("2d"),pad=24,sc=(Math.min(c.clientWidth||500,500)-pad*2)/size;
+ c.width=500;c.height=500;ctx.fillStyle="#080d17";ctx.fillRect(0,0,500,500);ctx.strokeStyle="#f4f7ff";ctx.lineWidth=1;
+ const scale=(500-pad*2)/size;
+ for(const pts of paths){ctx.beginPath();pts.forEach((p,i)=>{let x=pad+p[0]*scale,y=500-pad-p[1]*scale;i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();}
+}
+$("generate").addEventListener("click",generateDXF);
+$("download").addEventListener("click",()=>saveBlob(dxfText,outputName+".dxf","application/dxf"));
+$("downloadSvg").addEventListener("click",()=>saveBlob(svgText,outputName+".svg","image/svg+xml"));
+function saveBlob(text,name,type){const blob=new Blob([text],{type});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);}
+</script>
+</body></html>
